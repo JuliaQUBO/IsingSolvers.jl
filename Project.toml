@@ -7,5 +7,5 @@ version = "0.1.0"
 Anneal = "e4d9eb7f-b088-426e-aeb5-1c0dae3d8abb"
 
 [compat]
-Anneal = "0.3.2"
+Anneal = "0.4"
 julia = "1.6"
