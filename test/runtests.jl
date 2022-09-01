@@ -1,14 +1,10 @@
 using Test
 using Anneal
+using IsingSolvers
 
 const ISING_SOLVERS = [
-
+    GreedyDescent.Optimizer,
 ]
 
-function main()
-    for optimizer in ISING_SOLVERS
-        Anneal.test(optimizer)
-    end
-end
-
+main() = Anneal.test.(ISING_SOLVERS)
 main() # Here we go!
