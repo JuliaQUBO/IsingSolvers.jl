@@ -1,6 +1,8 @@
 module IsingSolvers
 
-import Anneal
-const MOI = Anneal.MathOptInterface
+# ~*~ Includes: Greedy Descent ~*~ #
+include("solvers/greedy_descent.jl")
+
+export GreedyDescent
 
 end # module
