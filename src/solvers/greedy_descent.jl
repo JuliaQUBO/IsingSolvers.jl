@@ -8,8 +8,8 @@ Anneal.@anew Optimizer begin
     sense = :min
     domain = :spin
     attributes = begin
-        "max_iter"::Union{Integer,Nothing} = nothing
-        "num_reads"::Integer = 1
+        "max_iter"::Union{Integer,Nothing} = 1_000
+        "num_reads"::Integer = 1_000
         "random_seed"::Union{Integer,Nothing} = nothing
     end
 end

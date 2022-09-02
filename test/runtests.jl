@@ -4,6 +4,7 @@ using IsingSolvers
 
 const ISING_SOLVERS = [
     GreedyDescent.Optimizer,
+    MCMCRandom.Optimizer,
 ]
 
 main() = Anneal.test.(ISING_SOLVERS)

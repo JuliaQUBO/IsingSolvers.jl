@@ -38,11 +38,7 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
         num_threads=num_threads
     )
 
-    cache = Dict()
-
     @variable(model, x[i=1:n], Bin)
-
-
     @variable(model, y[keys(J)], Bin)
 
     for (i, j) in keys(J)

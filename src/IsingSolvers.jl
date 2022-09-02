@@ -10,4 +10,9 @@ export GreedyDescent
 # 
 # export ILP
 
+# ~*~ Includes: Monte Carlo Markov Chain ~*~ #
+include("solvers/mcmc_random.jl")
+
+export MCMCRandom
+
 end # module
