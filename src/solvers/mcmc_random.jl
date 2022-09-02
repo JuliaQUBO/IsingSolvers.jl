@@ -79,7 +79,7 @@ function sample_state(
     start_time = time()
     while !stop((time() - start_time), time_limit, num_iter, max_iter)
         ψ = rand(rng, (-1, 1), n)
-        λ = Anneal.energy(ψ⃰, h, J)
+        λ = Anneal.energy(ψ, h, J)
 
         if λ < λ⃰
             λ⃰ = λ
