@@ -49,8 +49,7 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
 
     # ~*~ Run algorithm ~*~ #
     result = @timed Vector{Int}[
-        sample_state(rng, n, ℓ, h, J, A, Ω, ψ, Δ, max_iter, time_limit)
-        for _ = 1:num_reads
+        sample_state(rng, n, ℓ, h, J, A, Ω, ψ, Δ, max_iter, time_limit) for _ = 1:num_reads
     ]
     # ~*~ Format Results ~*~ #
     states = result.value
@@ -59,10 +58,7 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
     time_data["sampling"] = result.time
 
     # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}(
-        "time" => time_data,
-        "origin" => "Greedy Descent Algorithm"
-    )
+    metadata = Dict{String,Any}("time" => time_data, "origin" => "Greedy Descent Algorithm")
 
     return Anneal.SampleSet{Int,T}(sampler, states, metadata)
 end
@@ -83,7 +79,7 @@ function sample_state(
     # ~*~ Counters ~*~ #
     num_iter = 0
     restarts = 0
-    
+
     # ~*~ Optimal values ~*~ #
     λ⃰ = Inf
     ψ⃰ = zeros(Int, n)
@@ -129,7 +125,7 @@ function sample_state(
                     δ̂ = δ
                     empty!(ϕ)
                 end
-                
+
                 if δ <= δ̂
                     push!(ϕ, (j, 1))
                 end
@@ -181,7 +177,12 @@ function sample_state(
 end
 
 # ~*~ Stop criteria ~*~ #
-function stop(elapsed_time::Float64, time_limit::Float64, num_iter::Integer, max_iter::Integer)
+function stop(
+    elapsed_time::Float64,
+    time_limit::Float64,
+    num_iter::Integer,
+    max_iter::Integer,
+)
     (elapsed_time > time_limit) || (num_iter > max_iter)
 end
 
@@ -194,7 +195,13 @@ function stop(elapsed_time::Float64, time_limit::Float64, ::Integer, ::Nothing)
 end
 
 # ~*~ Scan the neighborhood ~*~ #
-function φ(i::Integer, ℓ::T, A::Set{Int}, J::Dict{Tuple{Int,Int},T}, ψ::Vector{Int}) where {T}
+function φ(
+    i::Integer,
+    ℓ::T,
+    A::Set{Int},
+    J::Dict{Tuple{Int,Int},T},
+    ψ::Vector{Int},
+) where {T}
     s = ℓ * ψ[i]
 
     for j in A

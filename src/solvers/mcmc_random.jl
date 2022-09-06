@@ -42,8 +42,7 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
 
     # ~*~ Run algorithm ~*~ #
     result = @timed Vector{Int}[
-        sample_state(rng, n, h, J, max_iter, time_limit)
-        for _ = 1:num_reads
+        sample_state(rng, n, h, J, max_iter, time_limit) for _ = 1:num_reads
     ]
     # ~*~ Format Results ~*~ #
     states = result.value
@@ -52,10 +51,7 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
     time_data["sampling"] = result.time
 
     # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}(
-        "time" => time_data,
-        "origin" => "Greedy Descent Algorithm"
-    )
+    metadata = Dict{String,Any}("time" => time_data, "origin" => "Greedy Descent Algorithm")
 
     return Anneal.SampleSet{Int,T}(sampler, states, metadata)
 end
@@ -71,18 +67,23 @@ function sample_state(
     # ~*~ Counters ~*~ #
     num_iter = 0
 
-    # ~*~ Optimal values ~*~ #
-    ψ⃰ = rand(rng, (-1, 1), n)
-    λ⃰ = Anneal.energy(ψ⃰, h, J)
+    # ~*~ Variables ~*~ #
+    ψ = Vector{Int}(undef, n)
+    ψ⃰ = Vector{Int}(undef, n)
+    λ⃰ = Inf
 
     # ~*~ Run Algorithm ~*~ #
     start_time = time()
     while !stop((time() - start_time), time_limit, num_iter, max_iter)
-        ψ = rand(rng, (-1, 1), n)
+        # ~ sample random state
+        Random.rand!(rng, ψ, (-1, 1))
+        # ~ compute its energy
         λ = Anneal.energy(ψ, h, J)
 
         if λ < λ⃰
+            # ~ update best energy
             λ⃰ = λ
+            # ~ update best state
             ψ⃰[:] .= ψ[:]
         end
 
@@ -93,7 +94,12 @@ function sample_state(
 end
 
 # ~*~ Stop criteria ~*~ #
-function stop(elapsed_time::Float64, time_limit::Float64, num_iter::Integer, max_iter::Integer)
+function stop(
+    elapsed_time::Float64,
+    time_limit::Float64,
+    num_iter::Integer,
+    max_iter::Integer,
+)
     (elapsed_time > time_limit) || (num_iter > max_iter)
 end
 
