@@ -9,21 +9,21 @@ Anneal.@anew Optimizer begin
     domain = :spin
     attributes = begin
         "max_iter"::Union{Integer,Nothing} = 1_000
-        "num_reads"::Integer = 1_000
-        "random_seed"::Union{Integer,Nothing} = nothing
+        NumberOfReads["num_reads"]::Integer = 1_000
+        RandomSeed["seed"]::Union{Integer,Nothing} = nothing
     end
 end
 
 function Anneal.sample(sampler::Optimizer{T}) where {T}
     # ~*~ Retrieve Model ~*~ #
-    h, J = Anneal.ising(Dict, T, sampler)
+    h, J, α, β = Anneal.ising(sampler, Dict, T)
 
     # ~*~ Retrieve attributes ~*~ #
     n           = MOI.get(sampler, MOI.NumberOfVariables())
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
     max_iter    = MOI.get(sampler, MOI.RawOptimizerAttribute("max_iter"))
-    num_reads   = MOI.get(sampler, MOI.RawOptimizerAttribute("num_reads"))
-    random_seed = MOI.get(sampler, MOI.RawOptimizerAttribute("random_seed"))
+    num_reads   = MOI.get(sampler, MCMCRandom.NumberOfReads())
+    random_seed = MOI.get(sampler, MCMCRandom.RandomSeed())
 
     # ~*~ Input validation ~*~ #
     @assert isnothing(max_iter) || max_iter >= 0
@@ -41,19 +41,41 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
     rng = Random.Xoshiro(random_seed)
 
     # ~*~ Run algorithm ~*~ #
-    result = @timed Vector{Int}[
-        sample_state(rng, n, h, J, max_iter, time_limit) for _ = 1:num_reads
-    ]
-    # ~*~ Format Results ~*~ #
-    states = result.value
+    states =
+        let results = @timed sample_states(rng, n, h, J, max_iter, time_limit, num_reads)
+            # ~*~ Measure time ~*~ #
+            time_data["sampling"] = results.time
 
-    # ~*~ Read time ~*~ #
-    time_data["sampling"] = result.time
+            results.value
+        end
+
+    samples = Anneal.Sample{T,Int}[]
+
+    for ψ in states
+        sample = Anneal.Sample{T}(ψ, α * (Anneal.energy(h, J, ψ) + β))
+
+        push!(samples, sample)
+    end
 
     # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}("time" => time_data, "origin" => "Greedy Descent Algorithm")
+    metadata = Dict{String,Any}(
+        "time" => time_data,
+        "origin" => "Greedy Descent Algorithm"
+    )
 
-    return Anneal.SampleSet{Int,T}(sampler, states, metadata)
+    return Anneal.SampleSet{T}(samples, metadata)
+end
+
+function sample_states(
+    rng,
+    n::Integer,
+    h::Dict{Int,T},
+    J::Dict{Tuple{Int,Int},T},
+    max_iter::Union{Integer,Nothing},
+    time_limit::Union{Float64,Nothing},
+    num_reads::Integer,
+) where {T}
+    return Vector{Int}[sample_state(rng, n, h, J, max_iter, time_limit) for _ = 1:num_reads]
 end
 
 function sample_state(
@@ -78,7 +100,7 @@ function sample_state(
         # ~ sample random state
         Random.rand!(rng, ψ, (-1, 1))
         # ~ compute its energy
-        λ = Anneal.energy(ψ, h, J)
+        λ = Anneal.energy(h, J, ψ)
 
         if λ < λ⃰
             # ~ update best energy

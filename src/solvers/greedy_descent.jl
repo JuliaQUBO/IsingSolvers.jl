@@ -4,26 +4,26 @@ using Anneal # ~ exports MOI = MathOptInterface
 using Random
 
 Anneal.@anew Optimizer begin
-    name = "Greedy Descent Solver"
-    sense = :min
-    domain = :spin
+    name       = "Greedy Descent Solver"
+    sense      = :min
+    domain     = :spin
     attributes = begin
-        "max_iter"::Union{Integer,Nothing} = 1_000
-        "num_reads"::Integer = 1_000
-        "random_seed"::Union{Integer,Nothing} = nothing
+        "max_iter"::Union{Integer,Nothing}         = 1_000
+        NumberOfReads["num_reads"]::Integer        = 1_000
+        RandomSeed["seed"]::Union{Integer,Nothing} = nothing
     end
 end
 
 function Anneal.sample(sampler::Optimizer{T}) where {T}
     # ~*~ Retrieve Model ~*~ #
-    h, J = Anneal.ising(Dict, T, sampler)
+    h, J, α, β = Anneal.ising(sampler, Dict, T)
 
     # ~*~ Retrieve attributes ~*~ #
     n           = MOI.get(sampler, MOI.NumberOfVariables())
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
     max_iter    = MOI.get(sampler, MOI.RawOptimizerAttribute("max_iter"))
-    num_reads   = MOI.get(sampler, MOI.RawOptimizerAttribute("num_reads"))
-    random_seed = MOI.get(sampler, MOI.RawOptimizerAttribute("random_seed"))
+    num_reads   = MOI.get(sampler, GreedyDescent.NumberOfReads())
+    random_seed = MOI.get(sampler, GreedyDescent.RandomSeed())
 
     # ~*~ Input validation ~*~ #
     @assert isnothing(max_iter) || max_iter >= 0
@@ -48,19 +48,51 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
     rng = Random.Xoshiro(random_seed)
 
     # ~*~ Run algorithm ~*~ #
-    result = @timed Vector{Int}[
-        sample_state(rng, n, ℓ, h, J, A, Ω, ψ, Δ, max_iter, time_limit) for _ = 1:num_reads
-    ]
-    # ~*~ Format Results ~*~ #
-    states = result.value
+    states = let results = @timed sample_states(
+            rng, n, ℓ, h, J, A, Ω, ψ, Δ,
+            max_iter, time_limit, num_reads,
+        )
 
-    # ~*~ Read time ~*~ #
-    time_data["sampling"] = result.time
+        time_data["sampling"] = results.time
+
+        results.value
+    end
+
+    samples = Anneal.Sample{T,Int}[]
+
+    for ψ in states
+        sample = Anneal.Sample{T}(ψ, α * (Anneal.energy(h, J, ψ) + β))
+        
+        push!(samples, sample)
+    end
 
     # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}("time" => time_data, "origin" => "Greedy Descent Algorithm")
+    metadata = Dict{String,Any}(
+        "time"   => time_data,
+        "origin" => "Greedy Descent Algorithm"
+    )
 
-    return Anneal.SampleSet{Int,T}(sampler, states, metadata)
+    return Anneal.SampleSet{T}(samples, metadata)
+end
+
+function sample_states(
+    rng,
+    n::Integer,
+    ℓ::Vector{T},
+    h::Dict{Int,T},
+    J::Dict{Tuple{Int,Int},T},
+    A::Dict{Int,Set{Int}},
+    Ω::BitSet,
+    ψ::Vector{Int},
+    Δ::Matrix{T},
+    max_iter::Union{Integer,Nothing},
+    time_limit::Union{Float64,Nothing},
+    num_reads::Integer,
+) where {T}
+    return Vector{Int}[
+        sample_state(rng, n, ℓ, h, J, A, Ω, ψ, Δ, max_iter, time_limit)
+        for _ = 1:num_reads
+    ]
 end
 
 function sample_state(
@@ -69,7 +101,7 @@ function sample_state(
     ℓ::Vector{T},
     h::Dict{Int,T},
     J::Dict{Tuple{Int,Int},T},
-    A::Dict{Int,Set{Int}}, # adjacency list
+    A::Dict{Int,Set{Int}},
     Ω::BitSet,
     ψ::Vector{Int},
     Δ::Matrix{T},
@@ -78,7 +110,6 @@ function sample_state(
 ) where {T}
     # ~*~ Counters ~*~ #
     num_iter = 0
-    restarts = 0
 
     # ~*~ Optimal values ~*~ #
     λ⃰ = Inf
@@ -116,7 +147,7 @@ function sample_state(
                 end
 
                 if δ <= δ̂
-                    push!(ϕ, (j, -1))
+                    push!(ϕ, (j, ↑))
                 end
 
                 δ = Δ[i, 2]
@@ -127,25 +158,27 @@ function sample_state(
                 end
 
                 if δ <= δ̂
-                    push!(ϕ, (j, 1))
+                    push!(ϕ, (j, ↓))
                 end
             end
 
-            i, σ = rand(rng, ϕ)
+            if !isempty(ϕ)
+                i, σ = rand(rng, ϕ)
 
-            ψ[i] = σ
+                ψ[i] = σ
 
-            delete!(Ω, i)
+                delete!(Ω, i)
 
-            for k ∈ A[i]
-                if k ∈ Ω
-                    ψ[k] = -1
-                    Δ[k, 1] = φ(k, ℓ[k], A[k], J, ψ)
+                for k ∈ A[i]
+                    if k ∈ Ω
+                        ψ[k] = ↑
+                        Δ[k, 1] = φ(k, ℓ[k], A[k], J, ψ)
 
-                    ψ[k] = 1
-                    Δ[k, 2] = φ(k, ℓ[k], A[k], J, ψ)
+                        ψ[k] = ↓
+                        Δ[k, 2] = φ(k, ℓ[k], A[k], J, ψ)
 
-                    ψ[k] = 0
+                        ψ[k] = 0
+                    end
                 end
             end
 
@@ -157,19 +190,16 @@ function sample_state(
         # ~ collect unvisited variables
         ω = collect(Ω)
         # ~ fill blanks within state
-        ψ[ω] .= rand(rng, (-1, 1), length(ω))
+        ψ[ω] .= rand(rng, (↑, ↓), length(ω))
 
         # ~ evaluate
-        λ = Anneal.energy(ψ, h, J)
+        λ = Anneal.energy(h, J, ψ)
 
         # ~ greedy update
         if λ < λ⃰
             λ⃰ = λ
             ψ⃰[:] .= ψ[:]
         end
-
-        # ~ noch einmal
-        restarts += 1
     end
 
     # ~ best state so far
