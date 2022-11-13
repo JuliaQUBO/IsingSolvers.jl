@@ -5,5 +5,6 @@ Ising Model solvers inspired by LANL's [ising-solvers](https://github.com/lanl-a
 ## Ising Model
 
 $$\begin{array}{rl}
-\displaystyle \min_{\mathbf{s}} & \mathbf{s}'\mathbf{J}\\,\mathbf{s} + \mathbf{h}'\mathbf{s}
+\displaystyle \min_{\mathbf{s}} & \mathbf{s}'\mathbf{J}\\,\mathbf{s} + \mathbf{h}'\mathbf{s}\\
+\text{s.t.}                     & \mathbf{s} \in \left\lbrace\pm 1\right\rbrace^{n}
 \end{array}$$
