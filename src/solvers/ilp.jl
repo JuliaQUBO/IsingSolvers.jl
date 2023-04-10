@@ -1,28 +1,33 @@
 module ILP
 
-# ~*~ Imports: Anneal.jl ~*~ #
-using Anneal
-
-# ~*~ Imports: MIP Solvers ~*~ #
 using JuMP
-using HiGHS
+import QUBODrivers:
+    MOI,
+    QUBODrivers,
+    QUBOTools,
+    Sample,
+    SampleSet,
+    @setup,
+    sample,
+    qubo,
+    ising
 
-Anneal.@anew Optimizer begin
+@setup Optimizer begin
     name       = "ILP"
     sense      = :min
     domain     = :bool
     attributes = begin
-        MIPSolver["mip_solver"]::Any = HiGHS.Optimizer
+        MIPSolver["mip_solver"]::Any = nothing
     end
 end
 
-function Anneal.sample(sampler::Optimizer{T}) where {T}
-    # ~*~ Retrieve Model ~*~ #
-    n          = MOI.get(sampler, MOI.NumberOfVariables())
-    Q, α, β    = Anneal.qubo(sampler, Dict, T)
-    h, J, _, _ = Anneal.ising(sampler, Dict, T)
+function sample(sampler::Optimizer{T}) where {T}
+    # Retrieve Model
+    n       = MOI.get(sampler, MOI.NumberOfVariables())
+    Q, α, β = qubo(sampler, Dict)
+    h, J    = ising(sampler, Dict)
 
-    # ~*~ Retrieve Attributes ~*~ #
+    # Retrieve Attributes
     solver = MOI.get(sampler, ILP.MIPSolver())
     params = Dict{Symbol,Any}(
         :time_limit  => MOI.get(sampler, MOI.TimeLimitSec()),
@@ -30,39 +35,36 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
         :silent      => MOI.get(sampler, MOI.Silent()),
     )
 
-    # ~*~ Timing Information ~*~ #
-    time_data = Dict{String,Any}()
+    @assert !isnothing(solver)
 
-    # ~*~ Build ILP Model ~*~ #
-
+    # Build ILP Model
     results = @timed build_mip_model(solver, n, Q, h, J; params...)
     model   = results.value
 
-    # ~*~ Measure time ~*~ #
-    time_data["build_model"] = results.time
+    metadata = Dict{String,Any}(
+        "origin" => "$(JuMP.solver_name(model)) @ IsingSolvers.jl",
+        "time"   => Dict{String,Any}()
+    )
 
-    # ~*~ Run ILP Optimization ~*~ #
+    # Measure time
+    metadata["time"]["build_model"] = results.time
+
+    # Run ILP Optimization
     results = @timed solve_mip_model(model)
     states  = [results.value]
 
-    samples = Anneal.Sample{T,Int}[]
+    samples = Sample{T,Int}[]
 
     for ψ in states
-        sample = Anneal.Sample{T}(ψ, α * (Anneal.energy(Q, ψ) + β))
-
-        push!(samples, sample)
+        λ = QUBOTools.value(Q, ψ, α, β)
+    
+        push!(samples, Sample{T}(ψ, λ))
     end
     
-    # ~*~ Measure time ~*~ #
-    time_data["solve"] = results.time
+    # Measure time
+    metadata["time"]["effective"] = results.time
 
-    # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}(
-        "time"   => time_data,
-        "origin" => "ILP @ $(JuMP.solver_name(model))",
-    )
-
-    return Anneal.SampleSet{T}(samples, metadata)
+    return SampleSet{T}(samples, metadata)
 end
 
 function build_mip_model(
@@ -86,7 +88,7 @@ function build_mip_model(
 
     if all(iszero.(values(h)))
         @warn "Spin symmetry detected. Adding symmetry breaking constraint."
-        JuMP.@constraint(model, x[begin] == 0)
+        JuMP.@constraint(model, x[1] == 0)
     end
 
     JuMP.@objective(
@@ -95,8 +97,6 @@ function build_mip_model(
         sum((i == j ? c * x[i] : c * y[(i, j)]) for ((i, j), c) in Q)
     )
 
-    mip_config!(model, solver; kws...)
-
     return model
 end
 
@@ -104,45 +104,6 @@ function solve_mip_model(model)
     optimize!(model)
 
     return round.(Int, value.(model[:x]))
-end
-
-function mip_config!(::Any, ::Any; kws...) end
-
-# function mip_config!(
-#     model,
-#     ::Type{<:Gurobi.Optimizer};
-#     cuts::Union{Integer,Nothing} = nothing,
-#     num_threads::Integer = 1,
-#     time_limit::Union{Float64,Nothing} = nothing,
-#     silent::Bool = false,
-#     kws...,
-# )
-#     # set_optimizer_attribute(model, "Presolve", 2)
-#     # set_optimizer_attribute(model, "MIPFocus", 1)
-#     time_limit = isnothing(time_limit) ? Inf : time_limit
-
-#     set_optimizer_attribute(model, MOI.NumberOfThreads(), num_threads)
-#     set_optimizer_attribute(model, MOI.TimeLimitSec(), time_limit)
-#     set_optimizer_attribute(model, MOI.Silent(), silent)
-
-#     if !isnothing(cuts)
-#         set_optimizer_attribute(model, "Cuts", cuts)
-#     end
-
-#     set_optimizer_attribute(model, "Presolve", 0)
-# end
-
-function mip_config!(
-    model,
-    ::Type{O};
-    num_threads::Integer = 1,
-    time_limit::Union{Float64,Nothing} = nothing,
-    silent::Bool = false,
-    kws...,
-) where {O<:HiGHS.Optimizer}
-    set_optimizer_attribute(model, MOI.NumberOfThreads(), num_threads)
-    set_optimizer_attribute(model, MOI.TimeLimitSec(), time_limit)
-    set_optimizer_attribute(model, MOI.Silent(), true)
 end
 
 end # module

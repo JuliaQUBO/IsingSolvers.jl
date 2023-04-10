@@ -1,9 +1,18 @@
 module GreedyDescent
 
-using Anneal # ~ exports MOI = MathOptInterface
 using Random
+import QUBODrivers:
+    MOI,
+    QUBODrivers,
+    QUBOTools,
+    Sample,
+    SampleSet,
+    @setup,
+    sample,
+    ising,
+    ↑, ↓
 
-Anneal.@anew Optimizer begin
+@setup Optimizer begin
     name       = "Greedy Descent Solver"
     sense      = :min
     domain     = :spin
@@ -14,18 +23,18 @@ Anneal.@anew Optimizer begin
     end
 end
 
-function Anneal.sample(sampler::Optimizer{T}) where {T}
-    # ~*~ Retrieve Model ~*~ #
-    h, J, α, β = Anneal.ising(sampler, Dict, T)
+function sample(sampler::Optimizer{T}) where {T}
+    # Retrieve Model
+    h, J, α, β = ising(sampler, Dict)
 
-    # ~*~ Retrieve attributes ~*~ #
+    # Retrieve attributes
     n           = MOI.get(sampler, MOI.NumberOfVariables())
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
     max_iter    = MOI.get(sampler, MOI.RawOptimizerAttribute("max_iter"))
     num_reads   = MOI.get(sampler, GreedyDescent.NumberOfReads())
     random_seed = MOI.get(sampler, GreedyDescent.RandomSeed())
 
-    # ~*~ Input validation ~*~ #
+    # Input validation
     @assert isnothing(max_iter) || max_iter >= 0
     @assert num_reads >= 0
     @assert isnothing(random_seed) || random_seed >= 0
@@ -34,45 +43,38 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
         error("Both 'time_limit' and 'max_iter' are missing. The algorithm must stop!")
     end
 
-    # ~*~ Timing Information ~*~ #
-    time_data = Dict{String,Any}()
+    # Timing Information
+    metadata = Dict{String,Any}(
+        "origin" => "Greedy Descent @ IsingSolvers.jl",
+        "time"   => Dict{String,Any}(),
+    )
 
-    # ~*~ Variables ~*~ #
+    # Variables
     ℓ = T[get(h, i, zero(T)) for i = 1:n]
-    A = Anneal.adjacency(J)
+    A = QUBOTools.adjacency(J)
     Ω = sizehint!(BitSet(), n)
     ψ = zeros(Int, n)
     Δ = zeros(T, n, 2)
 
-    # ~*~ Random Generator ~*~ #
+    # Random Generator
     rng = Random.Xoshiro(random_seed)
 
-    # ~*~ Run algorithm ~*~ #
-    states = let results = @timed sample_states(
-            rng, n, ℓ, h, J, A, Ω, ψ, Δ,
-            max_iter, time_limit, num_reads,
-        )
-
-        time_data["sampling"] = results.time
-
-        results.value
-    end
-
-    samples = Anneal.Sample{T,Int}[]
-
-    for ψ in states
-        sample = Anneal.Sample{T}(ψ, α * (Anneal.energy(h, J, ψ) + β))
-        
-        push!(samples, sample)
-    end
-
-    # ~*~ Gather metadata ~*~ #
-    metadata = Dict{String,Any}(
-        "time"   => time_data,
-        "origin" => "Greedy Descent Algorithm"
+    # Run algorithm
+    results = @timed sample_states(
+        rng, n, ℓ, h, J, A, Ω, ψ, Δ,
+        max_iter, time_limit, num_reads,
     )
+    samples = Sample{T,Int}[]
 
-    return Anneal.SampleSet{T}(samples, metadata)
+    for ψ in results.value
+        λ = QUBOTools.value(h, J, ψ, α, β)
+        
+        push!(samples, Sample{T}(ψ, λ))
+    end
+
+    metadata["time"]["effective"] = results.time
+
+    return SampleSet{T}(samples, metadata)
 end
 
 function sample_states(
@@ -108,14 +110,14 @@ function sample_state(
     max_iter::Union{Integer,Nothing},
     time_limit::Union{Float64,Nothing},
 ) where {T}
-    # ~*~ Counters ~*~ #
+    # Counters
     num_iter = 0
 
-    # ~*~ Optimal values ~*~ #
+    # Optimal values
     λ⃰ = Inf
     ψ⃰ = zeros(Int, n)
 
-    # ~*~ Run Algorithm ~*~ #
+    # Run Algorithm
     start_time = time()
     while !stop((time() - start_time), time_limit, num_iter, max_iter)
         # ~ state = 0
@@ -187,44 +189,44 @@ function sample_state(
             end
         end
 
-        # ~ collect unvisited variables
+        # collect unvisited variables
         ω = collect(Ω)
-        # ~ fill blanks within state
+        # fill blanks within state
         ψ[ω] .= rand(rng, (↑, ↓), length(ω))
 
-        # ~ evaluate
-        λ = Anneal.energy(h, J, ψ)
+        # evaluate
+        λ = QUBOTools.value(h, J, ψ)
 
-        # ~ greedy update
+        # greedy update
         if λ < λ⃰
             λ⃰ = λ
-            ψ⃰[:] .= ψ[:]
+            ψ⃰ .= ψ
         end
     end
 
-    # ~ best state so far
+    # best state so far
     return ψ⃰
 end
 
-# ~*~ Stop criteria ~*~ #
+# Stop criteria
 function stop(
     elapsed_time::Float64,
     time_limit::Float64,
     num_iter::Integer,
     max_iter::Integer,
 )
-    (elapsed_time > time_limit) || (num_iter > max_iter)
+    return (elapsed_time > time_limit) || (num_iter > max_iter)
 end
 
 function stop(::Float64, ::Nothing, num_iter::Integer, max_iter::Integer)
-    num_iter > max_iter
+    return num_iter > max_iter
 end
 
 function stop(elapsed_time::Float64, time_limit::Float64, ::Integer, ::Nothing)
     elapsed_time > time_limit
 end
 
-# ~*~ Scan the neighborhood ~*~ #
+# Scan the neighborhood
 function φ(
     i::Integer,
     ℓ::T,

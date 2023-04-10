@@ -1,6 +1,7 @@
 # IsingSolvers.jl
+[![QUBODRIVERS](https://img.shields.io/badge/Powered%20by-QUBODrivers.jl-%20%234063d8)](https://github.com/psrenergy/QUBODrivers.jl)
 
-Ising Model solvers inspired by LANL's [ising-solvers](https://github.com/lanl-ansi/ising-solvers) in Julia with wrappers for JuMP (ft. [Anneal.jl](https://github.com/psrenergy/Anneal.jl))
+Ising Model solvers inspired by LANL's [ising-solvers](https://github.com/lanl-ansi/ising-solvers) in Julia with wrappers for JuMP
 
 ## Ising Model
 

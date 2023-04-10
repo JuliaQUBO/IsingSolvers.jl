@@ -1,12 +1,20 @@
 module MCMCRandom
 
-using Anneal # ~ exports MOI = MathOptInterface
 using Random
+import QUBODrivers:
+    MOI,
+    QUBODrivers,
+    QUBOTools,
+    Sample,
+    SampleSet,
+    @setup,
+    sample,
+    ising
 
-Anneal.@anew Optimizer begin
-    name = "Monte Carlo Markov Chain Sampler"
-    sense = :min
-    domain = :spin
+@setup Optimizer begin
+    name       = "Monte Carlo Markov Chain Sampler"
+    sense      = :min
+    domain     = :spin
     attributes = begin
         "max_iter"::Union{Integer,Nothing} = 1_000
         NumberOfReads["num_reads"]::Integer = 1_000
@@ -14,18 +22,18 @@ Anneal.@anew Optimizer begin
     end
 end
 
-function Anneal.sample(sampler::Optimizer{T}) where {T}
-    # ~*~ Retrieve Model ~*~ #
-    h, J, α, β = Anneal.ising(sampler, Dict, T)
+function sample(sampler::Optimizer{T}) where {T}
+    # Retrieve Model
+    h, J, α, β = ising(sampler, Dict)
 
-    # ~*~ Retrieve attributes ~*~ #
+    # Retrieve attributes
     n           = MOI.get(sampler, MOI.NumberOfVariables())
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
     max_iter    = MOI.get(sampler, MOI.RawOptimizerAttribute("max_iter"))
     num_reads   = MOI.get(sampler, MCMCRandom.NumberOfReads())
     random_seed = MOI.get(sampler, MCMCRandom.RandomSeed())
 
-    # ~*~ Input validation ~*~ #
+    # Input validation
     @assert isnothing(max_iter) || max_iter >= 0
     @assert num_reads >= 0
     @assert isnothing(random_seed) || random_seed >= 0
@@ -34,36 +42,28 @@ function Anneal.sample(sampler::Optimizer{T}) where {T}
         error("Both 'time_limit' and 'max_iter' are missing. The algorithm must stop!")
     end
 
-    # ~*~ Timing Information ~*~ #
-    time_data = Dict{String,Any}()
-
-    # ~*~ Random Generator ~*~ #
-    rng = Random.Xoshiro(random_seed)
-
-    # ~*~ Run algorithm ~*~ #
-    states =
-        let results = @timed sample_states(rng, n, h, J, max_iter, time_limit, num_reads)
-            # ~*~ Measure time ~*~ #
-            time_data["sampling"] = results.time
-
-            results.value
-        end
-
-    samples = Anneal.Sample{T,Int}[]
-
-    for ψ in states
-        sample = Anneal.Sample{T}(ψ, α * (Anneal.energy(h, J, ψ) + β))
-
-        push!(samples, sample)
-    end
-
-    # ~*~ Gather metadata ~*~ #
     metadata = Dict{String,Any}(
-        "time" => time_data,
-        "origin" => "Greedy Descent Algorithm"
+        "origin" => "MCMC Random @ IsingSolvers.jl",
+        "time"   => Dict{String,Any}(),
     )
 
-    return Anneal.SampleSet{T}(samples, metadata)
+    # Random Generator
+    rng = Random.Xoshiro(random_seed)
+
+    # Run algorithm
+    results = @timed sample_states(rng, n, h, J, max_iter, time_limit, num_reads)
+
+    metadata["time"]["effective"] = results.time
+
+    samples = Sample{T,Int}[]
+
+    for ψ in results.value
+        λ = QUBOTools.value(h, J, ψ, α, β)
+
+        push!(samples, Sample{T}(ψ, λ))
+    end
+
+    return SampleSet{T}(samples, metadata)
 end
 
 function sample_states(
@@ -86,27 +86,27 @@ function sample_state(
     max_iter::Union{Integer,Nothing},
     time_limit::Union{Float64,Nothing},
 ) where {T}
-    # ~*~ Counters ~*~ #
+    # Counters
     num_iter = 0
 
-    # ~*~ Variables ~*~ #
+    # Variables
     ψ = Vector{Int}(undef, n)
     ψ⃰ = Vector{Int}(undef, n)
     λ⃰ = Inf
 
-    # ~*~ Run Algorithm ~*~ #
+    # Run Algorithm
     start_time = time()
     while !stop((time() - start_time), time_limit, num_iter, max_iter)
-        # ~ sample random state
+        # sample random state
         Random.rand!(rng, ψ, (-1, 1))
-        # ~ compute its energy
-        λ = Anneal.energy(h, J, ψ)
+        # compute its energy
+        λ = QUBOTools.value(h, J, ψ)
 
         if λ < λ⃰
-            # ~ update best energy
+            # update best energy
             λ⃰ = λ
-            # ~ update best state
-            ψ⃰[:] .= ψ[:]
+            # update best state
+            ψ⃰ .= ψ
         end
 
         num_iter += 1
@@ -115,22 +115,22 @@ function sample_state(
     return ψ⃰
 end
 
-# ~*~ Stop criteria ~*~ #
+# Stop criteria
 function stop(
     elapsed_time::Float64,
     time_limit::Float64,
     num_iter::Integer,
     max_iter::Integer,
 )
-    (elapsed_time > time_limit) || (num_iter > max_iter)
+    return (elapsed_time > time_limit) || (num_iter > max_iter)
 end
 
 function stop(::Float64, ::Nothing, num_iter::Integer, max_iter::Integer)
-    num_iter > max_iter
+    return num_iter > max_iter
 end
 
 function stop(elapsed_time::Float64, time_limit::Float64, ::Integer, ::Nothing)
-    elapsed_time > time_limit
+    return elapsed_time > time_limit
 end
 
 end # module
