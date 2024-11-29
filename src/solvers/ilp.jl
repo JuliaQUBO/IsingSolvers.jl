@@ -8,14 +8,10 @@ import QUBODrivers:
     Sample,
     SampleSet,
     @setup,
-    sample,
-    qubo,
-    ising
+    sample
 
 @setup Optimizer begin
     name       = "ILP"
-    sense      = :min
-    domain     = :bool
     attributes = begin
         MIPSolver["mip_solver"]::Any = nothing
     end
@@ -23,9 +19,7 @@ end
 
 function sample(sampler::Optimizer{T}) where {T}
     # Retrieve Model
-    n       = MOI.get(sampler, MOI.NumberOfVariables())
-    Q, α, β = qubo(sampler, Dict)
-    h, J    = ising(sampler, Dict)
+    n, L, Q, α, β = QUBOTools.qubo(sampler, :dict; sense = :min)
 
     # Retrieve Attributes
     solver = MOI.get(sampler, ILP.MIPSolver())
@@ -38,7 +32,7 @@ function sample(sampler::Optimizer{T}) where {T}
     @assert !isnothing(solver)
 
     # Build ILP Model
-    results = @timed build_mip_model(solver, n, Q, h, J; params...)
+    results = @timed build_mip_model(solver, n, L, Q; params...)
     model   = results.value
 
     metadata = Dict{String,Any}(
@@ -56,7 +50,7 @@ function sample(sampler::Optimizer{T}) where {T}
     samples = Sample{T,Int}[]
 
     for ψ in states
-        λ = QUBOTools.value(Q, ψ, α, β)
+        λ = QUBOTools.value(ψ, L, Q, α, β)
     
         push!(samples, Sample{T}(ψ, λ))
     end
@@ -70,31 +64,30 @@ end
 function build_mip_model(
     solver,
     n::Integer,
-    Q::Dict{Tuple{Int,Int},T},
-    h::Dict{Int,T},
-    J::Dict{Tuple{Int,Int},T};
+    L::Dict{Int,T},
+    Q::Dict{Tuple{Int,Int},T};
     kws...,
 ) where {T}
     model = JuMP.Model(solver)
 
     JuMP.@variable(model, x[i = 1:n], Bin)
-    JuMP.@variable(model, y[keys(J)], Bin)
+    JuMP.@variable(model, y[keys(Q)], Bin)
 
-    for (i, j) in keys(J)
+    for (i, j) in keys(Q)
         JuMP.@constraint(model, y[(i, j)] >= x[i] + x[j] - 1)
         JuMP.@constraint(model, y[(i, j)] <= x[i])
         JuMP.@constraint(model, y[(i, j)] <= x[j])
     end
 
-    if all(iszero.(values(h)))
-        @warn "Spin symmetry detected. Adding symmetry breaking constraint."
-        JuMP.@constraint(model, x[1] == 0)
-    end
+    # if all(iszero.(values(h)))
+    #     @warn "Spin symmetry detected. Adding symmetry breaking constraint."
+    #     JuMP.@constraint(model, x[1] == 0)
+    # end
 
     JuMP.@objective(
         model,
         Min,
-        sum((i == j ? c * x[i] : c * y[(i, j)]) for ((i, j), c) in Q)
+        sum(c * x[j] for (j, c) in L) + sum(c * y[(i, j)] for ((i, j), c) in Q)
     )
 
     return model

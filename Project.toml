@@ -1,7 +1,7 @@
 name = "IsingSolvers"
 uuid = "19695d51-5812-4a2b-89b0-5195538873ee"
-authors = ["pedromxavier <pedroxavier@psr-inc.com>", "pedroripper <pedroripper@psr-inc.com>"]
-version = "0.2.0"
+authors = ["pedromxavier <mail@pedro.ϵλ>", "pedroripper <pedroripper@psr-inc.com>"]
+version = "0.3.0"
 
 [deps]
 JuMP = "4076af6c-e467-56ae-b986-b466b2749572"
@@ -10,5 +10,5 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 
 [compat]
 JuMP = "1"
-QUBODrivers = "0.1"
-julia = "1.6"
+QUBODrivers = "0.3"
+julia = "1.9"

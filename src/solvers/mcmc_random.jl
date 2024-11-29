@@ -8,13 +8,10 @@ import QUBODrivers:
     Sample,
     SampleSet,
     @setup,
-    sample,
-    ising
+    sample
 
 @setup Optimizer begin
     name       = "Monte Carlo Markov Chain Sampler"
-    sense      = :min
-    domain     = :spin
     attributes = begin
         "max_iter"::Union{Integer,Nothing} = 1_000
         NumberOfReads["num_reads"]::Integer = 1_000
@@ -24,10 +21,9 @@ end
 
 function sample(sampler::Optimizer{T}) where {T}
     # Retrieve Model
-    h, J, α, β = ising(sampler, Dict)
+    n, h, J, α, β = QUBOTools.ising(sampler, :dict; sense = :min)
 
     # Retrieve attributes
-    n           = MOI.get(sampler, MOI.NumberOfVariables())
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
     max_iter    = MOI.get(sampler, MOI.RawOptimizerAttribute("max_iter"))
     num_reads   = MOI.get(sampler, MCMCRandom.NumberOfReads())
@@ -58,7 +54,7 @@ function sample(sampler::Optimizer{T}) where {T}
     samples = Sample{T,Int}[]
 
     for ψ in results.value
-        λ = QUBOTools.value(h, J, ψ, α, β)
+        λ = QUBOTools.value(ψ, h, J, α, β)
 
         push!(samples, Sample{T}(ψ, λ))
     end
