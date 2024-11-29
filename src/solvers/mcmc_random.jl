@@ -59,7 +59,7 @@ function sample(sampler::Optimizer{T}) where {T}
         push!(samples, Sample{T}(ψ, λ))
     end
 
-    return SampleSet{T}(samples, metadata)
+    return SampleSet{T}(samples, metadata; domain = :spin, sense = :min)
 end
 
 function sample_states(
@@ -96,7 +96,7 @@ function sample_state(
         # sample random state
         Random.rand!(rng, ψ, (-1, 1))
         # compute its energy
-        λ = QUBOTools.value(h, J, ψ)
+        λ = QUBOTools.value(ψ, h, J, one(T), zero(T))
 
         if λ < λ⃰
             # update best energy

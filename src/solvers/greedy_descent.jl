@@ -1,15 +1,10 @@
 module GreedyDescent
 
 using Random
-import QUBODrivers:
-    MOI,
-    QUBODrivers,
-    QUBOTools,
-    Sample,
-    SampleSet,
-    @setup,
-    sample,
-    ↑, ↓
+using Graphs
+using LinearAlgebra
+
+import QUBODrivers: MOI, QUBODrivers, QUBOTools, Sample, SampleSet, @setup, sample, ↑, ↓
 
 @setup Optimizer begin
     name       = "Greedy Descent Solver"
@@ -22,7 +17,7 @@ end
 
 function sample(sampler::Optimizer{T}) where {T}
     # Retrieve Model
-    n, h, J, α, β = QUBOTools.ising(sampler, :dict; sense = :min)
+    n, h, J, α, β = QUBOTools.ising(sampler, :sparse; sense = :min)
 
     # Retrieve attributes
     time_limit  = MOI.get(sampler, MOI.TimeLimitSec())
@@ -46,8 +41,7 @@ function sample(sampler::Optimizer{T}) where {T}
     )
 
     # Variables
-    ℓ = T[get(h, i, zero(T)) for i = 1:n]
-    A = QUBOTools.adjacency(J)
+    G = QUBOTools.adjacency(Symmetric(J))
     Ω = sizehint!(BitSet(), n)
     ψ = zeros(Int, n)
     Δ = zeros(T, n, 2)
@@ -56,56 +50,52 @@ function sample(sampler::Optimizer{T}) where {T}
     rng = Random.Xoshiro(random_seed)
 
     # Run algorithm
-    results = @timed sample_states(
-        rng, n, ℓ, h, J, A, Ω, ψ, Δ,
-        max_iter, time_limit, num_reads,
-    )
+    results =
+        @timed sample_states(rng, n, h, J, G, Ω, ψ, Δ, max_iter, time_limit, num_reads)
     samples = Sample{T,Int}[]
 
     for ψ in results.value
-        λ = QUBOTools.value(h, J, ψ, α, β)
-        
+        λ = QUBOTools.value(ψ, h, J, α, β)
+
         push!(samples, Sample{T}(ψ, λ))
     end
 
     metadata["time"]["effective"] = results.time
 
-    return SampleSet{T}(samples, metadata)
+    return SampleSet{T}(samples, metadata; domain = :spin, sense = :min)
 end
 
 function sample_states(
     rng,
     n::Integer,
-    ℓ::Vector{T},
-    h::Dict{Int,T},
-    J::Dict{Tuple{Int,Int},T},
-    A::Dict{Int,Set{Int}},
+    h::AbstractVector{T},
+    J::AbstractMatrix{T},
+    G::Graphs.Graph{K},
     Ω::BitSet,
     ψ::Vector{Int},
     Δ::Matrix{T},
     max_iter::Union{Integer,Nothing},
     time_limit::Union{Float64,Nothing},
     num_reads::Integer,
-) where {T}
-    return Vector{Int}[
-        sample_state(rng, n, ℓ, h, J, A, Ω, ψ, Δ, max_iter, time_limit)
-        for _ = 1:num_reads
-    ]
+) where {T,K}
+    return map(
+        _ -> sample_state(rng, n, h, J, G, Ω, ψ, Δ, max_iter, time_limit),
+        1:num_reads,
+    )
 end
 
 function sample_state(
     rng,
     n::Integer,
-    ℓ::Vector{T},
-    h::Dict{Int,T},
-    J::Dict{Tuple{Int,Int},T},
-    A::Dict{Int,Set{Int}},
+    h::AbstractVector{T},
+    J::AbstractMatrix{T},
+    G::Graphs.Graph{K},
     Ω::BitSet,
     ψ::Vector{Int},
     Δ::Matrix{T},
     max_iter::Union{Integer,Nothing},
     time_limit::Union{Float64,Nothing},
-) where {T}
+) where {T,K}
     # Counters
     num_iter = 0
 
@@ -121,7 +111,7 @@ function sample_state(
         # ~ uncheck all variables
         union!(Ω, 1:n)
         # ~ reset transition costs
-        Δ[:, :] .= [-ℓ ℓ]
+        Δ[:, :] .= [-h h]
 
         # ~ loop through variables
         for i = 1:n
@@ -167,13 +157,13 @@ function sample_state(
 
                 delete!(Ω, i)
 
-                for k ∈ A[i]
+                for k in Graphs.neighbors(G, i)
                     if k ∈ Ω
                         ψ[k] = ↑
-                        Δ[k, 1] = φ(k, ℓ[k], A[k], J, ψ)
+                        Δ[k, 1] = φ(k, ψ, h, J, G)
 
                         ψ[k] = ↓
-                        Δ[k, 2] = φ(k, ℓ[k], A[k], J, ψ)
+                        Δ[k, 2] = φ(k, ψ, h, J, G)
 
                         ψ[k] = 0
                     end
@@ -191,7 +181,7 @@ function sample_state(
         ψ[ω] .= rand(rng, (↑, ↓), length(ω))
 
         # evaluate
-        λ = QUBOTools.value(h, J, ψ)
+        λ = QUBOTools.value(ψ, h, J, one(T), zero(T))
 
         # greedy update
         if λ < λ⃰
@@ -223,21 +213,11 @@ function stop(elapsed_time::Float64, time_limit::Float64, ::Integer, ::Nothing)
 end
 
 # Scan the neighborhood
-function φ(
-    i::Integer,
-    ℓ::T,
-    A::Set{Int},
-    J::Dict{Tuple{Int,Int},T},
-    ψ::Vector{Int},
-) where {T}
-    s = ℓ * ψ[i]
+function φ(i::Integer, ψ::Vector{Int}, h::AbstractVector{T}, J::AbstractMatrix{T}, G::Graphs.Graph{K}) where {T,K}
+    s = h[i] * ψ[i]
 
-    for j in A
-        s += ψ[i] * ψ[j] * if i < j
-            get(J, (i, j), zero(T))
-        else
-            get(J, (j, i), zero(T))
-        end
+    for j in Graphs.neighbors(G, i)
+        s += ψ[i] * ψ[j] * (i < j ? J[i, j] : J[j, i])
     end
 
     return s

@@ -58,7 +58,7 @@ function sample(sampler::Optimizer{T}) where {T}
     # Measure time
     metadata["time"]["effective"] = results.time
 
-    return SampleSet{T}(samples, metadata)
+    return SampleSet{T}(samples, metadata; domain = :bool, sense = :min)
 end
 
 function build_mip_model(
