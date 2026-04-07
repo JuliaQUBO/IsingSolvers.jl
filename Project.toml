@@ -1,7 +1,7 @@
 name = "IsingSolvers"
 uuid = "19695d51-5812-4a2b-89b0-5195538873ee"
 authors = ["pedromxavier <mail@pedro.ϵλ>", "pedroripper <pedroripper@psr-inc.com>"]
-version = "0.3.0"
+version = "0.3.1"
 
 [deps]
 Graphs = "86223c79-3864-5bf0-83f7-82e725a168b6"
