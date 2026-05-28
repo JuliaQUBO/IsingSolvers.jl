@@ -14,7 +14,7 @@ Recommended replacements:
 | :-- | :-- |
 | `IsingSolvers.MCMCRandom` | `QUBODrivers.RandomSampler` |
 | `IsingSolvers.GreedyDescent` | `DWave.Greedy` or `DWave.Neal` |
-| `IsingSolvers.ILP` | A forthcoming MOI-native `QUBODrivers.MIPSampler` baseline |
+| `IsingSolvers.ILP` | `QUBODrivers.MIPSampler` |
 
 This package was originally inspired by LANL's
 [ising-solvers](https://github.com/lanl-ansi/ising-solvers) reference code. That
